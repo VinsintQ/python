@@ -82,6 +82,8 @@ def handle_client(conn, addr):
             url = extract_url(decrypted_msg)
             if url:
                 response = check_url_safety(url)
+            else:
+                response = "No URL found in the message."
 
             conn.send(response.encode("utf-8"))
     finally:
