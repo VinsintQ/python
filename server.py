@@ -16,23 +16,6 @@ API_KEY = "e3483f413198a1f057a2bf691c0cb0602996fe953e49b15a061815743e90c582"
 VIRUSTOTAL_URL = "https://www.virustotal.com/vtapi/v2/url/report"
 
 
-def load_blacklist(filename="blacklist.txt"):
-    try:
-        with open(filename, "r") as file:
-            return {line.strip().lower() for line in file}
-    except FileNotFoundError:
-        print("Blacklist file not found.")
-        return set()
-
-
-def contains_blacklisted_word(text, blacklist):
-    words = text.lower().split()
-    blacklisted_words = {word for word in words if word in blacklist}
-    if blacklisted_words:
-        return f"Text contains blacklisted words: {', '.join(blacklisted_words)}"
-    return "No blacklisted words detected."
-
-
 def extract_url(text):
     url_pattern = re.compile(r"https?://\S+|www\.\S+")
     match = url_pattern.search(text)
@@ -71,7 +54,7 @@ HOST = socket.gethostname()
 PORT = 9999
 
 
-def handle_client(conn, addr, blacklist):
+def handle_client(conn, addr):
     print(f"[+] Connected to {addr}")
 
     conn.send(public_pem)
@@ -99,8 +82,6 @@ def handle_client(conn, addr, blacklist):
             url = extract_url(decrypted_msg)
             if url:
                 response = check_url_safety(url)
-            else:
-                response = contains_blacklisted_word(decrypted_msg, blacklist)
 
             conn.send(response.encode("utf-8"))
     finally:
@@ -112,10 +93,7 @@ server.bind((HOST, PORT))
 server.listen(5)
 print(f"[+] Server running on {HOST}:{PORT}")
 
-blacklist = load_blacklist()
 
 while True:
     client_socket, client_address = server.accept()
-    threading.Thread(
-        target=handle_client, args=(client_socket, client_address, blacklist)
-    ).start()
+    threading.Thread(target=handle_client, args=(client_socket, client_address)).start()
