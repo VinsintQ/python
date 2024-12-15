@@ -18,7 +18,7 @@ def start_client():
     server_public_key = rsa.PublicKey.load_pkcs1(server_public_key_data)
 
     aes_key = base64.urlsafe_b64encode(AES.get_random_bytes(16))
-    print(f"Client AES Key: {aes_key}")  # Print AES Key
+    print(f"Client AES Key: {aes_key}")
     encrypted_aes_key = rsa.encrypt(aes_key, server_public_key)
     client_socket.send(encrypted_aes_key)
 

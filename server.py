@@ -7,7 +7,7 @@ import requests
 import json
 
 VIRUSTOTAL_URL = "https://www.virustotal.com/vtapi/v2/url/report"
-API_KEY = "e3483f413198a1f057a2bf691c0cb0602996fe953e49b15a061815743e90c582"  # Replace with your VirusTotal API key
+API_KEY = "e3483f413198a1f057a2bf691c0cb0602996fe953e49b15a061815743e90c582"
 
 
 def generate_rsa_keys():
@@ -36,10 +36,10 @@ def handle_client(client_socket, private_key):
         if aes_key is None:
             try:
                 aes_key = decrypt_message(encrypted_message, private_key).encode()
-                print(f"AES Key received: {aes_key}")  # Debug log
+                print(f"AES Key received: {aes_key}")
                 client_socket.send(b"AES Key received.")
             except Exception as e:
-                print(f"Error decrypting AES key: {e}")  # Debug log
+                print(f"Error decrypting AES key: {e}")
                 client_socket.send(b"Failed to set AES Key.")
             continue
 
@@ -57,7 +57,7 @@ def handle_client(client_socket, private_key):
             if decrypted_message == "END":
                 break
         except Exception as e:
-            print(f"Error processing the message: {e}")  # Debug log
+            print(f"Error processing the message: {e}")
             client_socket.send(b"Error processing the message.")
             continue
 
@@ -71,7 +71,7 @@ def start_server():
     print("Server is running...")
 
     public_key, private_key = generate_rsa_keys()
-    print(f"Server RSA Public Key: {public_key}")  # Print RSA Public Key
+    print(f"Server RSA Public Key: {public_key}")
 
     while True:
         client_socket, addr = server_socket.accept()
