@@ -1,47 +1,45 @@
 import socket
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography.hazmat.primitives.serialization import load_pem_public_key
-from cryptography.hazmat.primitives import hashes
+import rsa
+from Crypto.Cipher import AES
+import base64
 
-HOST = socket.gethostname()
-PORT = 9999
 
-client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client.connect((HOST, PORT))
+def encrypt_message(message, aes_key):
+    cipher = AES.new(aes_key, AES.MODE_EAX)
+    ciphertext, tag = cipher.encrypt_and_digest(message.encode())
+    return cipher.nonce + ciphertext
 
-public_pem = client.recv(1024)
-server_public_key = load_pem_public_key(public_pem)
 
-print("Server's Public Key:")
-print(public_pem.decode())
+def start_client():
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect(("127.0.0.1", 12345))
 
-try:
+    server_public_key_data = client_socket.recv(4096)
+    server_public_key = rsa.PublicKey.load_pkcs1(server_public_key_data)
+
+    aes_key = base64.urlsafe_b64encode(AES.get_random_bytes(16))
+    print(f"Client AES Key: {aes_key}")  # Print AES Key
+    encrypted_aes_key = rsa.encrypt(aes_key, server_public_key)
+    client_socket.send(encrypted_aes_key)
+
+    # Wait for the server to recieve of the AES key
+    response = client_socket.recv(4096).decode()
+    if response == "AES Key received.":
+        print("Keys exchanged successfully. You can now send messages.")
+    else:
+        print("Error: Server did not acknowledge the AES key.")
+
     while True:
-        message = input("You: ")
-        if message.lower() == "stop chat":
-            encrypted_msg = server_public_key.encrypt(
-                "[stop chat]".encode(),
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None,
-                ),
-            )
-            client.send(encrypted_msg)
-            print("[+] Chat ended.")
+        message = input("Enter message (type 'END' to quit): ")
+        encrypted_message = encrypt_message(message, aes_key)
+        client_socket.send(encrypted_message)
+        response = client_socket.recv(4096).decode()
+        print(f"Server response: {response}")
+        if message == "END":
             break
 
-        encrypted_msg = server_public_key.encrypt(
-            message.encode(),
-            padding.OAEP(
-                mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                algorithm=hashes.SHA256(),
-                label=None,
-            ),
-        )
-        client.send(encrypted_msg)
+    client_socket.close()
 
-        response = client.recv(1024).decode()
-        print(f"Server: {response}")
-finally:
-    client.close()
+
+if __name__ == "__main__":
+    start_client()

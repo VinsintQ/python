@@ -1,101 +1,86 @@
 import socket
 import threading
-from cryptography.hazmat.primitives.asymmetric import rsa, padding
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.primitives import padding as sym_padding
-import os
-import re
+import rsa
+from Crypto.Cipher import AES
+import base64
 import requests
-import urllib3
+import json
 
-# Suppress InsecureRequestWarning
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-API_KEY = "e3483f413198a1f057a2bf691c0cb0602996fe953e49b15a061815743e90c582"
 VIRUSTOTAL_URL = "https://www.virustotal.com/vtapi/v2/url/report"
+API_KEY = "e3483f413198a1f057a2bf691c0cb0602996fe953e49b15a061815743e90c582"  # Replace with your VirusTotal API key
 
 
-def extract_url(text):
-    url_pattern = re.compile(r"https?://\S+|www\.\S+")
-    match = url_pattern.search(text)
-    return match.group(0) if match else None
+def generate_rsa_keys():
+    public_key, private_key = rsa.newkeys(2048)
+    return public_key, private_key
+
+
+def decrypt_message(encrypted_message, private_key):
+    return rsa.decrypt(encrypted_message, private_key).decode()
 
 
 def check_url_safety(url):
     params = {"apikey": API_KEY, "resource": url}
-    try:
-        response = requests.get(VIRUSTOTAL_URL, params=params, verify=False)
-        response.raise_for_status()
-        result = response.json()
+    response = requests.get(VIRUSTOTAL_URL, params=params)
+    result = response.json().get("positives", 0)
+    return "Safe URL" if result == 0 else "Unsafe URL"
 
-        if result.get("response_code") == 1:
-            if result.get("positives", 0) > 0:
-                return f"WARNING: The URL '{url}' is flagged as malicious."
+
+def handle_client(client_socket, private_key):
+    aes_key = None
+    while True:
+        encrypted_message = client_socket.recv(4096)
+        if not encrypted_message:
+            break
+
+        if aes_key is None:
+            try:
+                aes_key = decrypt_message(encrypted_message, private_key).encode()
+                print(f"AES Key received: {aes_key}")  # Debug log
+                client_socket.send(b"AES Key received.")
+            except Exception as e:
+                print(f"Error decrypting AES key: {e}")  # Debug log
+                client_socket.send(b"Failed to set AES Key.")
+            continue
+
+        try:
+            cipher = AES.new(aes_key, AES.MODE_EAX, nonce=encrypted_message[:16])
+            decrypted_message = cipher.decrypt(encrypted_message[16:]).decode()
+            print(f"Received: {decrypted_message}")
+
+            if "http" in decrypted_message:
+                url_status = check_url_safety(decrypted_message)
+                client_socket.send(url_status.encode())
             else:
-                return f"The URL '{url}' is safe."
-        else:
-            return "Could not check the URL. It might be invalid or unavailable."
-    except requests.exceptions.RequestException as e:
-        return f"An error occurred while checking the URL: {e}"
-    except ValueError:
-        return "Error: The response from VirusTotal was not in a valid JSON format."
+                client_socket.send(f"Echo: {decrypted_message}".encode())
 
-
-private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-public_key = private_key.public_key()
-
-public_pem = public_key.public_bytes(
-    encoding=serialization.Encoding.PEM,
-    format=serialization.PublicFormat.SubjectPublicKeyInfo,
-)
-
-HOST = socket.gethostname()
-PORT = 9999
-
-
-def handle_client(conn, addr):
-    print(f"[+] Connected to {addr}")
-
-    conn.send(public_pem)
-
-    try:
-        while True:
-            encrypted_msg = conn.recv(1024)
-            if not encrypted_msg:
+            if decrypted_message == "END":
                 break
+        except Exception as e:
+            print(f"Error processing the message: {e}")  # Debug log
+            client_socket.send(b"Error processing the message.")
+            continue
 
-            decrypted_msg = private_key.decrypt(
-                encrypted_msg,
-                padding.OAEP(
-                    mgf=padding.MGF1(algorithm=hashes.SHA256()),
-                    algorithm=hashes.SHA256(),
-                    label=None,
-                ),
-            ).decode()
-            print(f"Received: {decrypted_msg}")
-
-            if decrypted_msg == "[stop chat]":
-                print("[-] Chat stopped by client.")
-                break
-
-            url = extract_url(decrypted_msg)
-            if url:
-                response = check_url_safety(url)
-            else:
-                response = "No URL found in the message."
-
-            conn.send(response.encode("utf-8"))
-    finally:
-        conn.close()
+    client_socket.close()
 
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind((HOST, PORT))
-server.listen(5)
-print(f"[+] Server running on {HOST}:{PORT}")
+def start_server():
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind(("0.0.0.0", 12345))
+    server_socket.listen(5)
+    print("Server is running...")
+
+    public_key, private_key = generate_rsa_keys()
+    print(f"Server RSA Public Key: {public_key}")  # Print RSA Public Key
+
+    while True:
+        client_socket, addr = server_socket.accept()
+        print(f"Connection from {addr}")
+        client_socket.send(public_key.save_pkcs1())
+        threading.Thread(
+            target=handle_client, args=(client_socket, private_key)
+        ).start()
 
 
-while True:
-    client_socket, client_address = server.accept()
-    threading.Thread(target=handle_client, args=(client_socket, client_address)).start()
+if __name__ == "__main__":
+    start_server()
